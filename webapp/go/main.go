@@ -945,7 +945,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	itemIDs := make([]int64 , len(items))
+	itemIDs := make([]interface{} , len(items))
 	for _, item := range items {
 		itemIDs = append(itemIDs, item.ID)
 	}
@@ -963,7 +963,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		transactionEvidencesTable[t.ItemID] = t
 	}
 
-	transactionEvidenceIDs := make([]int64 , len(transactionEvidences))
+	transactionEvidenceIDs := make([]interface{} , len(transactionEvidences))
 	for _, tx := range transactionEvidences {
 		transactionEvidenceIDs = append(transactionEvidenceIDs, tx.ID)
 	}
