@@ -870,25 +870,6 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
-	usersTable, errCode, errMsg := getUsersTable()
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
-		return
-	}
-
-	session := getSession(r)
-	userID, ok := session.Values["user_id"]
-	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "no session")
-		return
-	}
-
-	user := usersTable[userID.(int64)]
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
-		return
-	}
-
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
 	var err error
@@ -912,6 +893,25 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx := dbx.MustBegin()
+	usersTable, errCode, errMsg := getUsersTable()
+	if errMsg != "" {
+		outputErrorMsg(w, errCode, errMsg)
+		return
+	}
+
+	session := getSession(r)
+	userID, ok := session.Values["user_id"]
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "no session")
+		return
+	}
+
+	user := usersTable[userID.(int64)]
+	if errMsg != "" {
+		outputErrorMsg(w, errCode, errMsg)
+		return
+	}
+
 	items := []Item{}
 	if itemID > 0 && createdAt > 0 {
 		// paging
