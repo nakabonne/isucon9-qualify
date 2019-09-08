@@ -2114,7 +2114,6 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-
 	seller.LastBump = now
 	usersTable[seller.ID] = seller
 
@@ -2125,7 +2124,6 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		_ = tx.Rollback()
 		return
 	}
-
 	_ = tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
@@ -2139,23 +2137,18 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 
 func getSettings(w http.ResponseWriter, r *http.Request) {
 	csrfToken := getCSRFToken(r)
-
 	user, _, errMsg := getUser(r)
-
 	ress := resSetting{}
 	ress.CSRFToken = csrfToken
 	if errMsg == "" {
 		ress.User = &user
 	}
-
 	ress.PaymentServiceURL = getPaymentServiceURL()
-
 	categories := []Category{}
 	for _, v := range categoriesTable {
 		categories = append(categories, v)
 	}
 	ress.Categories = categories
-
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	_ = json.NewEncoder(w).Encode(ress)
 }
@@ -2170,7 +2163,6 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 
 	accountName := rl.AccountName
 	password := rl.Password
-
 	if accountName == "" || password == "" {
 		outputErrorMsg(w, http.StatusBadRequest, "all parameters are required")
 
@@ -2186,8 +2178,6 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if user.ID < 0 {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
-		log.Printf("アカウント名かパスワードが間違えています accountName: %s\n", accountName)
-		log.Println(usersTable[100])
 		return
 	}
 	err = bcrypt.CompareHashAndPassword(user.HashedPassword, []byte(password))
@@ -2256,13 +2246,11 @@ func postRegister(w http.ResponseWriter, r *http.Request) {
 		HashedPassword: hashedPassword,
 		Address: address,
 	}
-
 	u := User{
 		ID:          userID,
 		AccountName: accountName,
 		Address:     address,
 	}
-
 	session := getSession(r)
 	session.Values["user_id"] = u.ID
 	session.Values["csrf_token"] = secureRandomStr(20)
@@ -2284,16 +2272,13 @@ func getReports(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	_ = json.NewEncoder(w).Encode(transactionEvidences)
 }
 
 func outputErrorMsg(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-
 	w.WriteHeader(status)
-
 	_ = json.NewEncoder(w).Encode(struct {
 		Error string `json:"error"`
 	}{Error: msg})
