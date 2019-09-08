@@ -4,6 +4,7 @@ import (
 	crand "crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -66,6 +67,7 @@ var (
 	store     sessions.Store
 
 	categoriesTable map[int]Category
+	usersTable map[int64]User
 )
 
 type Config struct {
@@ -338,6 +340,17 @@ func main() {
 		categoriesTable[c.ID] = c
 	}
 
+	var users []User
+	err = dbx.Select(&users, "SELECT * FROM `users`")
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	usersTable := make(map[int64]User, len(users))
+	for _, u := range users {
+		usersTable[u.ID] = u
+	}
+
 	mux := goji.NewMux()
 
 	// API
@@ -395,49 +408,33 @@ func getCSRFToken(r *http.Request) string {
 	return csrfToken.(string)
 }
 
-func getUsersTable() (usersTable map[int64]User, err error) {
-	users := []User{}
-	err = dbx.Select(&users, "SELECT * FROM `users`")
-	if err != nil {
-		log.Print(err)
-		return
-	}
-	usersTable = make(map[int64]User, len(users))
-	for _, u := range users {
-		usersTable[u.ID] = u
-	}
-	return usersTable, nil
-}
-
 func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	session := getSession(r)
 	userID, ok := session.Values["user_id"]
 	if !ok {
 		return user, http.StatusNotFound, "no session"
 	}
-
-	err := dbx.Get(&user, "SELECT * FROM `users` WHERE `id` = ?", userID)
-	if err == sql.ErrNoRows {
+	userIDInt64, ok :=  userID.(int64)
+	if !ok {
+		return user, http.StatusNotFound, "fail cast"
+	}
+	user, ok = usersTable[userIDInt64]
+	if !ok {
 		return user, http.StatusNotFound, "user not found"
 	}
-	if err != nil {
-		log.Print(err)
-		return user, http.StatusInternalServerError, "db error"
-	}
-
 	return user, http.StatusOK, ""
 }
 
-func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
-	user := User{}
-	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
-	if err != nil {
-		return userSimple, err
+func getUserSimpleByID(userID int64) (userSimple *UserSimple, err error) {
+	user, ok := usersTable[userID]
+	if !ok {
+		return nil, errors.New("no user")
 	}
-	userSimple.ID = user.ID
-	userSimple.AccountName = user.AccountName
-	userSimple.NumSellItems = user.NumSellItems
-	return userSimple, err
+	return &UserSimple{
+		ID: user.ID,
+		AccountName: user.AccountName,
+		NumSellItems: user.NumSellItems,
+	}, nil
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
@@ -586,24 +583,13 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	usersTable, err := getUsersTable()
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		sellerUser, ok := usersTable[item.SellerID]
-		if !ok {
+		seller, err := getUserSimpleByID(item.SellerID)
+		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
-		var seller UserSimple
-		seller.ID = sellerUser.ID
-		seller.AccountName = sellerUser.AccountName
-		seller.NumSellItems = sellerUser.NumSellItems
 		category, err := getCategoryByID(dbx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
@@ -612,7 +598,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
 			SellerID:   item.SellerID,
-			Seller:     &seller,
+			Seller:     seller,
 			Status:     item.Status,
 			Name:       item.Name,
 			Price:      item.Price,
@@ -725,24 +711,13 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	usersTable, err := getUsersTable()
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		sellerUser, ok := usersTable[item.SellerID]
-		if !ok {
+		seller, err := getUserSimpleByID(item.SellerID)
+		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
-		var seller UserSimple
-		seller.ID = sellerUser.ID
-		seller.AccountName = sellerUser.AccountName
-		seller.NumSellItems = sellerUser.NumSellItems
 		category, err := getCategoryByID(dbx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
@@ -751,7 +726,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
 			SellerID:   item.SellerID,
-			Seller:     &seller,
+			Seller:     seller,
 			Status:     item.Status,
 			Name:       item.Name,
 			Price:      item.Price,
@@ -788,7 +763,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSimple, err := getUserSimpleByID(dbx, userID)
+	userSimple, err := getUserSimpleByID(userID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
 		return
@@ -861,7 +836,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
 			SellerID:   item.SellerID,
-			Seller:     &userSimple,
+			Seller:     userSimple,
 			Status:     item.Status,
 			Name:       item.Name,
 			Price:      item.Price,
@@ -879,7 +854,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rui := resUserItems{
-		User:    &userSimple,
+		User:    userSimple,
 		Items:   itemSimples,
 		HasNext: hasNext,
 	}
@@ -889,6 +864,12 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
+	user, errCode, errMsg := getUser(r)
+	if errMsg != "" {
+		outputErrorMsg(w, errCode, errMsg)
+		return
+	}
+
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
 	var err error
@@ -912,39 +893,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx := dbx.MustBegin()
-	users := []User{}
-	err = tx.Select(&users, "SELECT * FROM `users`")
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		_ = tx.Rollback()
-		return
-	}
-	usersTable := make(map[int64]User, len(users))
-	for _, u := range users {
-		usersTable[u.ID] = u
-	}
-
-	session := getSession(r)
-	userID, ok := session.Values["user_id"]
-	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "no session")
-		_ = tx.Rollback()
-		return
-	}
-	userIDInt64, ok :=  userID.(int64)
-	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "fail cast")
-		_ = tx.Rollback()
-		return
-	}
-
-	user, ok := usersTable[userIDInt64]
-	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		_ = tx.Rollback()
-		return
-	}
 
 	items := []Item{}
 	if itemID > 0 && createdAt > 0 {
@@ -992,18 +940,12 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		sellerUser, ok := usersTable[item.SellerID]
-		if !ok {
-			outputErrorMsg(w, http.StatusNotFound, "sellers not found")
+		seller, err := getUserSimpleByID(item.SellerID)
+		if err != nil {
+			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			_ = tx.Rollback()
 			return
 		}
-
-		var seller UserSimple
-		seller.ID = sellerUser.ID
-		seller.AccountName = sellerUser.AccountName
-		seller.NumSellItems = sellerUser.NumSellItems
-
 		category, err := getCategoryByID(tx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
@@ -1014,7 +956,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemDetail := ItemDetail{
 			ID:       item.ID,
 			SellerID: item.SellerID,
-			Seller:   &seller,
+			Seller:   seller,
 			// BuyerID
 			// Buyer
 			Status:      item.Status,
@@ -1031,19 +973,14 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyerUser, ok := usersTable[item.BuyerID]
-			if !ok {
+			buyer, err := getUserSimpleByID(item.BuyerID)
+			if err != nil {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				_ = tx.Rollback()
 				return
 			}
-
-			var buyer UserSimple
-			buyer.ID = buyerUser.ID
-			buyer.AccountName = buyerUser.AccountName
-			buyer.NumSellItems = buyerUser.NumSellItems
 			itemDetail.BuyerID = item.BuyerID
-			itemDetail.Buyer = &buyer
+			itemDetail.Buyer = buyer
 		}
 
 		transactionEvidence := TransactionEvidence{}
@@ -1137,7 +1074,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, err := getUserSimpleByID(dbx, item.SellerID)
+	seller, err := getUserSimpleByID(item.SellerID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
@@ -1146,7 +1083,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 	itemDetail := ItemDetail{
 		ID:       item.ID,
 		SellerID: item.SellerID,
-		Seller:   &seller,
+		Seller:   seller,
 		// BuyerID
 		// Buyer
 		Status:      item.Status,
@@ -1163,13 +1100,13 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (user.ID == item.SellerID || user.ID == item.BuyerID) && item.BuyerID != 0 {
-		buyer, err := getUserSimpleByID(dbx, item.BuyerID)
+		buyer, err := getUserSimpleByID(item.BuyerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 			return
 		}
 		itemDetail.BuyerID = item.BuyerID
-		itemDetail.Buyer = &buyer
+		itemDetail.Buyer = buyer
 
 		transactionEvidence := TransactionEvidence{}
 		err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
