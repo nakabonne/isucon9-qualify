@@ -278,16 +278,6 @@ func init() {
 	templates = template.Must(template.ParseFiles(
 		"../public/index.html",
 	))
-
-	var categories []Category
-	err := dbx.Select(&categories, "SELECT * FROM `categories`")
-	if err != nil {
-		log.Print(err)
-		return
-	}
-	for _, c := range categories {
-		categoriesTable[c.ID] = c
-	}
 }
 
 func main() {
@@ -330,6 +320,16 @@ func main() {
 		log.Fatalf("failed to connect to DB: %s.", err.Error())
 	}
 	defer dbx.Close()
+
+	var categories []Category
+	err = dbx.Select(&categories, "SELECT * FROM `categories`")
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	for _, c := range categories {
+		categoriesTable[c.ID] = c
+	}
 
 	mux := goji.NewMux()
 
