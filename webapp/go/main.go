@@ -395,6 +395,23 @@ func getCSRFToken(r *http.Request) string {
 	return csrfToken.(string)
 }
 
+func getUsersTable() (usersTable map[int64]*User, errCode int, errMsg string) {
+	var users []User
+	err := dbx.Select(&users, "SELECT * FROM `users`")
+	if err == sql.ErrNoRows {
+		return nil, http.StatusNotFound, "user not found"
+	}
+	if err != nil {
+		log.Print(err)
+		return nil, http.StatusInternalServerError, "db error"
+	}
+	usersTable = make(map[int64]*User, len(users))
+	for _, u := range users {
+		usersTable[u.ID] = &u
+	}
+	return usersTable, http.StatusOK, ""
+}
+
 func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	session := getSession(r)
 	userID, ok := session.Values["user_id"]
@@ -853,8 +870,20 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
+	usersTable, errCode, errMsg := getUsersTable()
+	if errMsg != "" {
+		outputErrorMsg(w, errCode, errMsg)
+		return
+	}
 
-	user, errCode, errMsg := getUser(r)
+	session := getSession(r)
+	userID, ok := session.Values["user_id"]
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "no session")
+		return
+	}
+
+	user := usersTable[userID.(int64)]
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
@@ -929,12 +958,12 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(tx, item.SellerID)
-		if err != nil {
-			outputErrorMsg(w, http.StatusNotFound, "seller not found")
-			_ = tx.Rollback()
-			return
-		}
+		sellerUser := usersTable[item.SellerID]
+		var seller UserSimple
+		seller.ID = sellerUser.ID
+		seller.AccountName = sellerUser.AccountName
+		seller.NumSellItems = sellerUser.NumSellItems
+
 		category, err := getCategoryByID(tx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
@@ -962,12 +991,11 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, err := getUserSimpleByID(tx, item.BuyerID)
-			if err != nil {
-				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
-				_ = tx.Rollback()
-				return
-			}
+			buyerUser := usersTable[item.SellerID]
+			var buyer UserSimple
+			buyer.ID = buyerUser.ID
+			buyer.AccountName = buyerUser.AccountName
+			buyer.NumSellItems = buyerUser.NumSellItems
 			itemDetail.BuyerID = item.BuyerID
 			itemDetail.Buyer = &buyer
 		}
