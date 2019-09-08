@@ -327,6 +327,7 @@ func main() {
 		log.Print(err)
 		return
 	}
+	categoriesTable = make(map[int]Category, len(categories))
 	for _, c := range categories {
 		categoriesTable[c.ID] = c
 	}
