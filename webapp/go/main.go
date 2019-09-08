@@ -4,6 +4,7 @@ import (
 	crand "crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -66,6 +67,7 @@ var (
 	store     sessions.Store
 
 	categoriesTable map[int]Category
+	usersTable map[int64]User
 )
 
 type Config struct {
@@ -338,6 +340,17 @@ func main() {
 		categoriesTable[c.ID] = c
 	}
 
+	var users []User
+	err = dbx.Select(&users, "SELECT * FROM `users`")
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	usersTable = make(map[int64]User, len(users))
+	for _, u := range users {
+		usersTable[u.ID] = u
+	}
+
 	mux := goji.NewMux()
 
 	// API
@@ -401,29 +414,35 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	if !ok {
 		return user, http.StatusNotFound, "no session"
 	}
-
-	err := dbx.Get(&user, "SELECT * FROM `users` WHERE `id` = ?", userID)
-	if err == sql.ErrNoRows {
+	userIDInt64, ok :=  userID.(int64)
+	if !ok {
+		return user, http.StatusNotFound, "fail cast"
+	}
+	user, ok = usersTable[userIDInt64]
+	if !ok {
 		return user, http.StatusNotFound, "user not found"
 	}
-	if err != nil {
-		log.Print(err)
-		return user, http.StatusInternalServerError, "db error"
-	}
-
 	return user, http.StatusOK, ""
 }
 
-func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
-	user := User{}
-	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
-	if err != nil {
-		return userSimple, err
+func getUserByID(userID int64) (user User, err error) {
+	user, ok := usersTable[userID]
+	if !ok {
+		return user, errors.New("no user")
 	}
-	userSimple.ID = user.ID
-	userSimple.AccountName = user.AccountName
-	userSimple.NumSellItems = user.NumSellItems
-	return userSimple, err
+	return user, nil
+}
+
+func getUserSimpleByID(userID int64) (userSimple *UserSimple, err error) {
+	user, ok := usersTable[userID]
+	if !ok {
+		return nil, errors.New("no user")
+	}
+	return &UserSimple{
+		ID: user.ID,
+		AccountName: user.AccountName,
+		NumSellItems: user.NumSellItems,
+	}, nil
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
@@ -574,7 +593,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		seller, err := getUserSimpleByID(item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
@@ -587,7 +606,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
 			SellerID:   item.SellerID,
-			Seller:     &seller,
+			Seller:     seller,
 			Status:     item.Status,
 			Name:       item.Name,
 			Price:      item.Price,
@@ -702,7 +721,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		seller, err := getUserSimpleByID(item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
@@ -715,7 +734,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
 			SellerID:   item.SellerID,
-			Seller:     &seller,
+			Seller:     seller,
 			Status:     item.Status,
 			Name:       item.Name,
 			Price:      item.Price,
@@ -752,7 +771,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSimple, err := getUserSimpleByID(dbx, userID)
+	userSimple, err := getUserSimpleByID(userID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "user not found")
 		return
@@ -825,7 +844,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
 			SellerID:   item.SellerID,
-			Seller:     &userSimple,
+			Seller:     userSimple,
 			Status:     item.Status,
 			Name:       item.Name,
 			Price:      item.Price,
@@ -843,7 +862,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rui := resUserItems{
-		User:    &userSimple,
+		User:    userSimple,
 		Items:   itemSimples,
 		HasNext: hasNext,
 	}
@@ -853,7 +872,6 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
-
 	user, errCode, errMsg := getUser(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
@@ -883,6 +901,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx := dbx.MustBegin()
+
 	items := []Item{}
 	if itemID > 0 && createdAt > 0 {
 		// paging
@@ -929,7 +948,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(tx, item.SellerID)
+		seller, err := getUserSimpleByID(item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			_ = tx.Rollback()
@@ -945,7 +964,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemDetail := ItemDetail{
 			ID:       item.ID,
 			SellerID: item.SellerID,
-			Seller:   &seller,
+			Seller:   seller,
 			// BuyerID
 			// Buyer
 			Status:      item.Status,
@@ -962,14 +981,14 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, err := getUserSimpleByID(tx, item.BuyerID)
+			buyer, err := getUserSimpleByID(item.BuyerID)
 			if err != nil {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				_ = tx.Rollback()
 				return
 			}
 			itemDetail.BuyerID = item.BuyerID
-			itemDetail.Buyer = &buyer
+			itemDetail.Buyer = buyer
 		}
 
 		transactionEvidence := TransactionEvidence{}
@@ -1063,7 +1082,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller, err := getUserSimpleByID(dbx, item.SellerID)
+	seller, err := getUserSimpleByID(item.SellerID)
 	if err != nil {
 		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
@@ -1072,7 +1091,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 	itemDetail := ItemDetail{
 		ID:       item.ID,
 		SellerID: item.SellerID,
-		Seller:   &seller,
+		Seller:   seller,
 		// BuyerID
 		// Buyer
 		Status:      item.Status,
@@ -1089,13 +1108,13 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (user.ID == item.SellerID || user.ID == item.BuyerID) && item.BuyerID != 0 {
-		buyer, err := getUserSimpleByID(dbx, item.BuyerID)
+		buyer, err := getUserSimpleByID(item.BuyerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 			return
 		}
 		itemDetail.BuyerID = item.BuyerID
-		itemDetail.Buyer = &buyer
+		itemDetail.Buyer = buyer
 
 		transactionEvidence := TransactionEvidence{}
 		err = dbx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
@@ -1330,16 +1349,9 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", targetItem.SellerID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		_ = tx.Rollback()
-		return
-	}
+	seller, err := getUserByID(targetItem.SellerID)
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		_ = tx.Rollback()
 		return
@@ -1982,13 +1994,7 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", user.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		_ = tx.Rollback()
-		return
-	}
+	seller, err := getUserByID(user.ID)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -2021,17 +2027,9 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	_, err = tx.Exec("UPDATE `users` SET `num_sell_items`=?, `last_bump`=? WHERE `id`=?",
-		seller.NumSellItems+1,
-		now,
-		seller.ID,
-	)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
+	seller.NumSellItems += 1
+	seller.LastBump = now
+	usersTable[seller.ID] = seller
 	_ = tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
@@ -2090,13 +2088,7 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", user.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		_ = tx.Rollback()
-		return
-	}
+	seller, err := getUserByID(user.ID)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -2122,16 +2114,8 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-
-	_, err = tx.Exec("UPDATE `users` SET `last_bump`=? WHERE id=?",
-		now,
-		seller.ID,
-	)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
+	seller.LastBump = now
+	usersTable[seller.ID] = seller
 
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
 	if err != nil {
@@ -2140,7 +2124,6 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		_ = tx.Rollback()
 		return
 	}
-
 	_ = tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
@@ -2154,23 +2137,18 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 
 func getSettings(w http.ResponseWriter, r *http.Request) {
 	csrfToken := getCSRFToken(r)
-
 	user, _, errMsg := getUser(r)
-
 	ress := resSetting{}
 	ress.CSRFToken = csrfToken
 	if errMsg == "" {
 		ress.User = &user
 	}
-
 	ress.PaymentServiceURL = getPaymentServiceURL()
-
 	categories := []Category{}
 	for _, v := range categoriesTable {
 		categories = append(categories, v)
 	}
 	ress.Categories = categories
-
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	_ = json.NewEncoder(w).Encode(ress)
 }
@@ -2185,41 +2163,37 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 
 	accountName := rl.AccountName
 	password := rl.Password
-
 	if accountName == "" || password == "" {
 		outputErrorMsg(w, http.StatusBadRequest, "all parameters are required")
 
 		return
 	}
 
-	u := User{}
-	err = dbx.Get(&u, "SELECT * FROM `users` WHERE `account_name` = ?", accountName)
-	if err == sql.ErrNoRows {
+	var user User
+	user.ID = -1
+	for _, u := range usersTable {
+		if u.AccountName == accountName {
+			user = u
+		}
+	}
+	if user.ID < 0 {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
 		return
 	}
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	err = bcrypt.CompareHashAndPassword(u.HashedPassword, []byte(password))
+	err = bcrypt.CompareHashAndPassword(user.HashedPassword, []byte(password))
 	if err == bcrypt.ErrMismatchedHashAndPassword {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
 		return
 	}
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "crypt error")
 		return
 	}
 
 	session := getSession(r)
 
-	session.Values["user_id"] = u.ID
+	session.Values["user_id"] = user.ID
 	session.Values["csrf_token"] = secureRandomStr(20)
 	if err = session.Save(r, w); err != nil {
 		log.Print(err)
@@ -2229,7 +2203,7 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	_ = json.NewEncoder(w).Encode(u)
+	_ = json.NewEncoder(w).Encode(user)
 }
 
 func postRegister(w http.ResponseWriter, r *http.Request) {
@@ -2258,33 +2232,25 @@ func postRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := dbx.Exec("INSERT INTO `users` (`account_name`, `hashed_password`, `address`) VALUES (?, ?, ?)",
-		accountName,
-		hashedPassword,
-		address,
-	)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	var userID int64 = 0
+	for key := range usersTable {
+		if userID < key {
+			userID = key
+		}
 	}
+	userID++
 
-	userID, err := result.LastInsertId()
-
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	usersTable[userID] = User{
+		ID: userID,
+		AccountName: accountName,
+		HashedPassword: hashedPassword,
+		Address: address,
 	}
-
 	u := User{
 		ID:          userID,
 		AccountName: accountName,
 		Address:     address,
 	}
-
 	session := getSession(r)
 	session.Values["user_id"] = u.ID
 	session.Values["csrf_token"] = secureRandomStr(20)
@@ -2306,16 +2272,13 @@ func getReports(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	_ = json.NewEncoder(w).Encode(transactionEvidences)
 }
 
 func outputErrorMsg(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-
 	w.WriteHeader(status)
-
 	_ = json.NewEncoder(w).Encode(struct {
 		Error string `json:"error"`
 	}{Error: msg})
