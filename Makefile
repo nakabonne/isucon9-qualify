@@ -20,7 +20,7 @@ set-slow-log:
 mysqldumpslow:
 	# slow logのファイル名はインスタンスによって変える
 	sudo mysqldumpslow -s t /var/lib/mysql/webapp-slow.log > ~/tmp/slow.log
-	sudo cp /dev/null /var/lib/mysql/slow.log
+	sudo cp /dev/null /var/lib/mysql/webapp-slow.log
 
 restart-mysql:
 	sudo /etc/init.d/mysql restart
