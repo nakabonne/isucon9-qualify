@@ -950,7 +950,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		itemIDs = append(itemIDs, item.ID)
 	}
 	transactionEvidences := []TransactionEvidence{}
-	err = tx.Get(&transactionEvidences, "SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
+	err = tx.Select(&transactionEvidences, "SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs...)
 	if err != nil && err != sql.ErrNoRows {
 		// It's able to ignore ErrNoRows
 		log.Print(err)
@@ -968,7 +968,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		transactionEvidenceIDs = append(transactionEvidenceIDs, tx.ID)
 	}
 	shippings := []Shipping{}
-	err = tx.Get(&shippings, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionEvidenceIDs)
+	err = tx.Select(&shippings, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionEvidenceIDs...)
 	if err != nil && err != sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		_ = tx.Rollback()
