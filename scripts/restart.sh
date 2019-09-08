@@ -25,14 +25,13 @@ make mysqldumpslow
 echo "$(tput setaf 2)log rotate Succeeded! $(tput sgr0)"
 echo ""
 
-# TODO: やる
 # application reload
 #sudo cp etc/systemd.go.service /etc/systemd/system/systemd.go.service
 #sudo systemctl daemon-reload
-#cd go
-#make build
-#sudo systemctl restart systemd.go.service
-#echo "$(tput setaf 2)application reload Succeeded! $(tput sgr0)"
+cd webapp/go
+make
+sudo systemctl restart isucari.golang.service
+echo "$(tput setaf 2)application reload Succeeded! $(tput sgr0)"
 echo ""
 
 echo "$(tput setaf 2)############################$(tput sgr0)"
