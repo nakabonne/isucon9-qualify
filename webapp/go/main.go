@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,7 +66,7 @@ var (
 	store     sessions.Store
 
 	categoriesTable map[int]Category
-	usersTable map[int64]User
+	usersTable      map[int64]User
 )
 
 type Config struct {
@@ -284,11 +283,6 @@ func init() {
 }
 
 func main() {
-	// TODO: Remove
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
-
 	host := os.Getenv("MYSQL_HOST")
 	if host == "" {
 		host = "127.0.0.1"
@@ -414,7 +408,7 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	if !ok {
 		return user, http.StatusNotFound, "no session"
 	}
-	userIDInt64, ok :=  userID.(int64)
+	userIDInt64, ok := userID.(int64)
 	if !ok {
 		return user, http.StatusNotFound, "fail cast"
 	}
@@ -439,8 +433,8 @@ func getUserSimpleByID(userID int64) (userSimple *UserSimple, err error) {
 		return nil, errors.New("no user")
 	}
 	return &UserSimple{
-		ID: user.ID,
-		AccountName: user.AccountName,
+		ID:           user.ID,
+		AccountName:  user.AccountName,
 		NumSellItems: user.NumSellItems,
 	}, nil
 }
@@ -2240,10 +2234,10 @@ func postRegister(w http.ResponseWriter, r *http.Request) {
 	userID++
 
 	usersTable[userID] = User{
-		ID: userID,
-		AccountName: accountName,
+		ID:             userID,
+		AccountName:    accountName,
 		HashedPassword: hashedPassword,
-		Address: address,
+		Address:        address,
 	}
 	u := User{
 		ID:          userID,
