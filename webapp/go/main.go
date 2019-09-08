@@ -2178,16 +2178,16 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var user User
+	user.ID = -1
 	for _, u := range usersTable {
 		if u.AccountName == accountName {
 			user = u
 		}
 	}
-	if user.ID == 0 {
+	if user.ID < 0 {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
 		return
 	}
-
 	err = bcrypt.CompareHashAndPassword(user.HashedPassword, []byte(password))
 	if err == bcrypt.ErrMismatchedHashAndPassword {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
@@ -2195,7 +2195,6 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "crypt error")
 		return
 	}
