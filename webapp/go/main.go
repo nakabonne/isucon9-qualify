@@ -884,9 +884,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		_ = tx.Rollback()
 		return
 	}
-	usersTable := make(map[int64]*User, len(users))
+	usersTable := make(map[int64]User, len(users))
 	for _, u := range users {
-		usersTable[u.ID] = &u
+		usersTable[u.ID] = u
 	}
 
 	session := getSession(r)
@@ -896,9 +896,16 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		_ = tx.Rollback()
 		return
 	}
-	user, ok := usersTable[userID.(int64)]
+	userIDInt64, ok :=  userID.(int64)
 	if !ok {
-		outputErrorMsg(w, http.StatusNotFound, "no user")
+		outputErrorMsg(w, http.StatusNotFound, "fail cast")
+		_ = tx.Rollback()
+		return
+	}
+
+	user, ok := usersTable[userIDInt64]
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "user not found")
 		_ = tx.Rollback()
 		return
 	}
@@ -951,7 +958,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		sellerUser, ok := usersTable[item.SellerID]
 		if !ok {
-			outputErrorMsg(w, http.StatusNotFound, "no seller")
+			outputErrorMsg(w, http.StatusNotFound, "sellers not found")
 			_ = tx.Rollback()
 			return
 		}
@@ -990,7 +997,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		if item.BuyerID != 0 {
 			buyerUser, ok := usersTable[item.BuyerID]
 			if !ok {
-				outputErrorMsg(w, http.StatusNotFound, "no buyer")
+				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				_ = tx.Rollback()
 				return
 			}
