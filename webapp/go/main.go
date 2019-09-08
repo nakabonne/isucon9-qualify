@@ -893,9 +893,15 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := session.Values["user_id"]
 	if !ok {
 		outputErrorMsg(w, http.StatusNotFound, "no session")
+		_ = tx.Rollback()
 		return
 	}
-	user := usersTable[userID.(int64)]
+	user, ok := usersTable[userID.(int64)]
+	if !ok {
+		outputErrorMsg(w, http.StatusNotFound, "no user")
+		_ = tx.Rollback()
+		return
+	}
 
 	items := []Item{}
 	if itemID > 0 && createdAt > 0 {
@@ -943,7 +949,13 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		sellerUser := usersTable[item.SellerID]
+		sellerUser, ok := usersTable[item.SellerID]
+		if !ok {
+			outputErrorMsg(w, http.StatusNotFound, "no seller")
+			_ = tx.Rollback()
+			return
+		}
+
 		var seller UserSimple
 		seller.ID = sellerUser.ID
 		seller.AccountName = sellerUser.AccountName
@@ -976,7 +988,13 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyerUser := usersTable[item.SellerID]
+			buyerUser, ok := usersTable[item.SellerID]
+			if !ok {
+				outputErrorMsg(w, http.StatusNotFound, "no buyer")
+				_ = tx.Rollback()
+				return
+			}
+
 			var buyer UserSimple
 			buyer.ID = buyerUser.ID
 			buyer.AccountName = buyerUser.AccountName
