@@ -395,6 +395,20 @@ func getCSRFToken(r *http.Request) string {
 	return csrfToken.(string)
 }
 
+func getUsersTable() (usersTable map[int64]User, err error) {
+	users := []User{}
+	err = dbx.Select(&users, "SELECT * FROM `users`")
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	usersTable = make(map[int64]User, len(users))
+	for _, u := range users {
+		usersTable[u.ID] = u
+	}
+	return usersTable, nil
+}
+
 func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	session := getSession(r)
 	userID, ok := session.Values["user_id"]
@@ -572,13 +586,24 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	usersTable, err := getUsersTable()
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		sellerUser, ok := usersTable[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
+		var seller UserSimple
+		seller.ID = sellerUser.ID
+		seller.AccountName = sellerUser.AccountName
+		seller.NumSellItems = sellerUser.NumSellItems
 		category, err := getCategoryByID(dbx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
@@ -700,13 +725,24 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	usersTable, err := getUsersTable()
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		sellerUser, ok := usersTable[item.SellerID]
+		if !ok {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
+		var seller UserSimple
+		seller.ID = sellerUser.ID
+		seller.AccountName = sellerUser.AccountName
+		seller.NumSellItems = sellerUser.NumSellItems
 		category, err := getCategoryByID(dbx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
