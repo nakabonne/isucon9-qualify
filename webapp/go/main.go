@@ -988,7 +988,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyerUser, ok := usersTable[item.SellerID]
+			buyerUser, ok := usersTable[item.BuyerID]
 			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "no buyer")
 				_ = tx.Rollback()
