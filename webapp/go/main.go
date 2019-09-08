@@ -421,7 +421,11 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	return categoriesTable[categoryID], nil
+	category = categoriesTable[categoryID]
+	if category.ParentID != 0 {
+		category.ParentCategoryName = categoriesTable[category.ParentID].CategoryName
+	}
+	return category, nil
 }
 
 func getConfigByName(name string) (string, error) {
