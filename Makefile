@@ -4,7 +4,7 @@ MAKEFLAGS = --no-builtin-rules --no-builtin-variables --always-make
 SHELL  = /usr/bin/env bash
 
 alp:
-	sudo alp -r --sum -f $(file) --aggregates "/new_items\S+,/users\S+,/items\S+,/upload\S+"
+	sudo alp -r --sum -f $(file) --aggregates "/new_items\S+,/items\S+,/upload\S+"
 
 restart:
 	sh scripts/restart.sh
