@@ -395,23 +395,6 @@ func getCSRFToken(r *http.Request) string {
 	return csrfToken.(string)
 }
 
-func getUsersTable() (usersTable map[int64]*User, errCode int, errMsg string) {
-	var users []User
-	err := dbx.Select(&users, "SELECT * FROM `users`")
-	if err == sql.ErrNoRows {
-		return nil, http.StatusNotFound, "user not found"
-	}
-	if err != nil {
-		log.Print(err)
-		return nil, http.StatusInternalServerError, "db error"
-	}
-	usersTable = make(map[int64]*User, len(users))
-	for _, u := range users {
-		usersTable[u.ID] = &u
-	}
-	return usersTable, http.StatusOK, ""
-}
-
 func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	session := getSession(r)
 	userID, ok := session.Values["user_id"]
@@ -893,10 +876,17 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx := dbx.MustBegin()
-	usersTable, errCode, errMsg := getUsersTable()
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
+	users := []User{}
+	err = tx.Select(&users, "SELECT * FROM `users`")
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		_ = tx.Rollback()
 		return
+	}
+	usersTable := make(map[int64]*User, len(users))
+	for _, u := range users {
+		usersTable[u.ID] = &u
 	}
 
 	session := getSession(r)
@@ -905,12 +895,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusNotFound, "no session")
 		return
 	}
-
 	user := usersTable[userID.(int64)]
-	if errMsg != "" {
-		outputErrorMsg(w, errCode, errMsg)
-		return
-	}
 
 	items := []Item{}
 	if itemID > 0 && createdAt > 0 {
