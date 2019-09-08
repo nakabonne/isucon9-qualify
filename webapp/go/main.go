@@ -346,7 +346,7 @@ func main() {
 		log.Print(err)
 		return
 	}
-	usersTable := make(map[int64]User, len(users))
+	usersTable = make(map[int64]User, len(users))
 	for _, u := range users {
 		usersTable[u.ID] = u
 	}
