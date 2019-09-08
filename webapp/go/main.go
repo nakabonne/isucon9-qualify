@@ -2186,13 +2186,13 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if user.ID < 0 {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
-		log.Println("アカウント名かパスワードが間違えています 1")
+		log.Printf("アカウント名かパスワードが間違えています accountName: %s\n", accountName)
+		log.Println(usersTable[100])
 		return
 	}
 	err = bcrypt.CompareHashAndPassword(user.HashedPassword, []byte(password))
 	if err == bcrypt.ErrMismatchedHashAndPassword {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
-		log.Println("アカウント名かパスワードが間違えています 2")
 		return
 	}
 	if err != nil {
