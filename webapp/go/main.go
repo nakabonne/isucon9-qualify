@@ -319,6 +319,8 @@ func main() {
 	}
 	defer dbx.Close()
 
+	categoryInit()
+
 	mux := goji.NewMux()
 
 	// API
@@ -357,6 +359,20 @@ func main() {
 	// Assets
 	mux.Handle(pat.Get("/*"), http.FileServer(http.Dir("../public")))
 	log.Fatal(http.ListenAndServe(":8000", mux))
+}
+
+func categoryInit() {
+	categories := [100]string{}
+	err = sqlx.Get(q, &categories, "SELECT * FROM `categories`")
+
+	log.Print(categories)
+	// if category.ParegntID != 0 {
+	// 	parentCategory, err := getCategoryByID(q, category.ParentID)
+	// 	if err != nil {
+	// 		return category, err
+	// 	}
+	// 	category.ParentCategoryName = parentCategory.CategoryName
+	// }
 }
 
 func getSession(r *http.Request) *sessions.Session {
