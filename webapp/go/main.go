@@ -425,6 +425,14 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	return user, http.StatusOK, ""
 }
 
+func getUserByID(userID int64) (user User, err error) {
+	user, ok := usersTable[userID]
+	if !ok {
+		return user, errors.New("no user")
+	}
+	return user, nil
+}
+
 func getUserSimpleByID(userID int64) (userSimple *UserSimple, err error) {
 	user, ok := usersTable[userID]
 	if !ok {
@@ -1341,16 +1349,9 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", targetItem.SellerID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		_ = tx.Rollback()
-		return
-	}
+	seller, err := getUserByID(targetItem.SellerID)
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		_ = tx.Rollback()
 		return
@@ -1993,13 +1994,7 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 
 	tx := dbx.MustBegin()
 
-	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", user.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		_ = tx.Rollback()
-		return
-	}
+	seller, err := getUserByID(user.ID)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -2032,17 +2027,9 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	_, err = tx.Exec("UPDATE `users` SET `num_sell_items`=?, `last_bump`=? WHERE `id`=?",
-		seller.NumSellItems+1,
-		now,
-		seller.ID,
-	)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
+	seller.NumSellItems += 1
+	seller.LastBump = now
+	usersTable[seller.ID] = seller
 	_ = tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
@@ -2101,13 +2088,7 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", user.ID)
-	if err == sql.ErrNoRows {
-		outputErrorMsg(w, http.StatusNotFound, "user not found")
-		_ = tx.Rollback()
-		return
-	}
+	seller, err := getUserByID(user.ID)
 	if err != nil {
 		log.Print(err)
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -2134,15 +2115,8 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec("UPDATE `users` SET `last_bump`=? WHERE id=?",
-		now,
-		seller.ID,
-	)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
+	seller.LastBump = now
+	usersTable[seller.ID] = seller
 
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
 	if err != nil {
@@ -2203,20 +2177,18 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u := User{}
-	err = dbx.Get(&u, "SELECT * FROM `users` WHERE `account_name` = ?", accountName)
-	if err == sql.ErrNoRows {
+	var user User
+	for _, u := range usersTable {
+		if u.AccountName == accountName {
+			user = u
+		}
+	}
+	if user.ID == 0 {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
 		return
 	}
-	if err != nil {
-		log.Print(err)
 
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	err = bcrypt.CompareHashAndPassword(u.HashedPassword, []byte(password))
+	err = bcrypt.CompareHashAndPassword(user.HashedPassword, []byte(password))
 	if err == bcrypt.ErrMismatchedHashAndPassword {
 		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
 		return
@@ -2230,7 +2202,7 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 
 	session := getSession(r)
 
-	session.Values["user_id"] = u.ID
+	session.Values["user_id"] = user.ID
 	session.Values["csrf_token"] = secureRandomStr(20)
 	if err = session.Save(r, w); err != nil {
 		log.Print(err)
@@ -2240,7 +2212,7 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	_ = json.NewEncoder(w).Encode(u)
+	_ = json.NewEncoder(w).Encode(user)
 }
 
 func postRegister(w http.ResponseWriter, r *http.Request) {
@@ -2269,25 +2241,19 @@ func postRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := dbx.Exec("INSERT INTO `users` (`account_name`, `hashed_password`, `address`) VALUES (?, ?, ?)",
-		accountName,
-		hashedPassword,
-		address,
-	)
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	var userID int64 = 0
+	for key := range usersTable {
+		if userID < key {
+			userID = key
+		}
 	}
+	userID++
 
-	userID, err := result.LastInsertId()
-
-	if err != nil {
-		log.Print(err)
-
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	usersTable[userID] = User{
+		ID: userID,
+		AccountName: accountName,
+		HashedPassword: hashedPassword,
+		Address: address,
 	}
 
 	u := User{
